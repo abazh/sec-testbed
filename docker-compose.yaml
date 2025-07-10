@@ -1,0 +1,164 @@
+services:
+  # Network Switch with Pure OVS - Must start first
+  switch:
+    build: ./switch
+    container_name: sec_switch
+    hostname: switch
+    network_mode: host
+    privileged: true
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_NICE
+      - SYS_MODULE
+    extra_hosts:
+      switch: "127.0.1.1"
+      host.docker.internal: "host-gateway"
+    volumes:
+      - ./switch/ovs_config.sh:/ovs_config.sh
+      - ./switch/cleanup_pre_stop.sh:/cleanup_pre_stop.sh
+      - ./data/switch_logs:/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /lib/modules:/lib/modules:ro
+    command: ["/ovs_config.sh"]
+    pre_stop:
+      - command: ["/cleanup_pre_stop.sh"]
+    stop_grace_period: 10s
+    stop_signal: SIGTERM
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ovs-vsctl", "show"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.sec-testbed.service=switch"
+      - "com.sec-testbed.component=network"
+
+  # Attacker Container - Connected to OVS bridge
+  attacker:
+    build: ./attacker
+    container_name: sec_attacker
+    hostname: attacker
+    networks:
+      ovs_bridge:
+        ipv4_address: 100.64.0.10
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    volumes:
+      - ./data/attacker_logs:/logs
+      - ./attacker/attack_scenarios:/attack_scenarios
+    environment:
+      - TARGET_IP=${VICTIM_IP:-100.64.0.20}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    tty: true
+    stdin_open: true
+    depends_on:
+      switch:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '${ATTACKER_CPU_LIMIT:-1.0}'
+          memory: '${ATTACKER_MEMORY_LIMIT:-1G}'
+        reservations:
+          cpus: '0.5'
+          memory: '512M'
+    restart: unless-stopped
+    labels:
+      - "com.sec-testbed.service=attacker"
+      - "com.sec-testbed.component=simulation"
+
+  # Victim Container - Connected to OVS bridge
+  victim:
+    build: ./victim
+    container_name: sec_victim
+    hostname: victim
+    networks:
+      ovs_bridge:
+        ipv4_address: 100.64.0.20
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./data/victim_logs:/logs
+      - ./data/wordpress:/var/www/html/wordpress
+      - ./data/ojs:/var/www/html/ojs
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-vulnerable123}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-wordpress}
+      - MYSQL_USER=${MYSQL_USER:-wpuser}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-wppass}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    tty: true
+    stdin_open: true
+    depends_on:
+      switch:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '${VICTIM_CPU_LIMIT:-2.0}'
+          memory: '${VICTIM_MEMORY_LIMIT:-2G}'
+        reservations:
+          cpus: '1.0'
+          memory: '1G'
+    restart: unless-stopped
+    labels:
+      - "com.sec-testbed.service=victim"
+      - "com.sec-testbed.component=target"
+
+  # Network Monitor Container - Connected to OVS bridge  
+  monitor:
+    build: ./monitor
+    container_name: sec_monitor
+    hostname: monitor
+    networks:
+      ovs_bridge:
+        ipv4_address: 100.64.0.30
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./data/captures:/captures
+      - ./data/analysis:/analysis
+      - ./monitor/scripts:/analysis_scripts
+    command: ["/start_monitoring.sh"]
+    environment:
+      - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-eth0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RETENTION_DAYS=${LOG_RETENTION_DAYS:-7}
+    tty: true
+    stdin_open: true
+    depends_on:
+      switch:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '${MONITOR_CPU_LIMIT:-1.0}'
+          memory: '${MONITOR_MEMORY_LIMIT:-1G}'
+        reservations:
+          cpus: '0.5'
+          memory: '512M'
+    restart: unless-stopped
+    labels:
+      - "com.sec-testbed.service=monitor"
+      - "com.sec-testbed.component=analysis"
+
+# Docker bridge network that OVS will take over
+networks:
+  ovs_bridge:
+    name: sec-testbed
+    driver: bridge
+    attachable: true
+    ipam:
+      config:
+        - subnet: ${TESTBED_SUBNET:-100.64.0.0/24}
+          gateway: ${TESTBED_GATEWAY:-100.64.0.1}
+    driver_opts:
+      com.docker.network.bridge.name: ${OVS_BRIDGE_NAME:-ovs-br0}
+    labels:
+      - "com.sec-testbed.network=main"

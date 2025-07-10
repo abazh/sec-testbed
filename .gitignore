@@ -1,0 +1,144 @@
+# Security Testbed .gitignore
+
+# Environment configuration files
+.env
+.env.local
+.env.production
+.env.development
+*.env
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data directories (runtime generated)
+data/captures/*.pcap
+data/captures/*.pcapng
+data/captures/*.arg
+data/analysis/*.log
+data/analysis/*.json
+data/analysis/datasets/
+data/analysis/models/
+data/attacker_logs/*.log
+data/victim_logs/*.log
+data/switch_logs/*.log
+data/monitor_logs/*.log
+
+# Docker volumes (persistent but not version controlled)
+data/wordpress/wp-*
+data/wordpress/uploads/
+data/ojs/cache/
+data/ojs/files/
+data/ojs/public/
+data/mysql/
+
+# Security and credential files
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+tokens/
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-*
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+*~
+*.swp
+*.swo
+
+# Log files
+*.log
+logs/
+log/
+
+# Archive files
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+*.7z
+
+# Docker artifacts
+.docker/
+docker-compose.override.yml
+docker-compose.*.yml
+!docker-compose.yaml
+
+# Backup files
+backup/
+backups/
+*.backup
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Documentation builds
+site/
+_site/
+docs/_build/
+
+# Local development
+local/
+scratch/
+test-data/
+
+# Security scan results
+trivy-results.sarif
+security-scan-results/
+vulnerability-reports/
+
+# Performance test results
+performance-results/
+load-test-data/
+
+# Custom user additions (add your local ignores here)
+# *.local
