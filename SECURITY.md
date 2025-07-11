@@ -67,11 +67,9 @@
 The following vulnerabilities are **intentionally included** for educational purposes:
 
 ##### Victim Container
-- **Weak SSH Configuration**: Root login enabled, weak passwords
-- **Vulnerable WordPress**: Outdated version with known vulnerabilities
-- **Weak MySQL Configuration**: Default/weak passwords, remote root access
-- **PHP Information Disclosure**: phpinfo() page exposed
-- **Directory Traversal**: Potential file inclusion vulnerabilities
+- **OWASP Juice Shop**: Modern vulnerable web application with multiple security challenges
+- **Node.js Application**: Running on port 3000 with various intentional vulnerabilities
+- **No Database Dependencies**: Self-contained application with built-in data storage
 
 ##### Network Configuration
 - **Unencrypted Traffic**: All traffic flows in plaintext for analysis

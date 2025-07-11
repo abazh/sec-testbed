@@ -37,19 +37,21 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
   - Attack timing markers for dataset correlation
   - Coordinated attack sequences
 
-### 2. **Victim Container** (100.64.0.20:80, 100.64.0.20:8081)
+### 2. **Victim Container** (100.64.0.20:3000)
 - **Purpose**: Host vulnerable services as attack targets
 - **Services**:
-  - WordPress (port 80) - `/wordpress`
-  - OJS (port 8081) - Open Journal Systems
-  - Vulnerable login page - `/vulnerable_login.php`
-- **Databases**: MySQL with intentionally weak credentials
+  - OWASP Juice Shop (port 3000) - Modern vulnerable web application
+- **Features**: Comprehensive web application security testing platform with multiple vulnerability categories
 
 ### 3. **Monitor Container** (100.64.0.30)
-- **Purpose**: Capture and analyze all network traffic
+- **Purpose**: Capture and analyze all network traffic with ML-ready output
 - **Key Features**:
-  - Full packet capture (tcpdump)
-  - Flow analysis (Argus with all important features)
+  - Suricata IDS/IPS engine for comprehensive traffic analysis
+  - Eve.json generation optimized for machine learning datasets
+  - Real-time attack detection and classification
+  - ML feature extraction for Random Forest and other algorithms
+  - Attack correlation with timing markers
+  - Automated dataset generation for supervised learning
   - Attack correlation processor
   - Automated dataset generation
 
@@ -86,9 +88,7 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
    ```
 
 5. **Access Services**
-   - WordPress: http://100.64.0.20/wordpress
-   - OJS: http://100.64.0.20:8081
-   - Vulnerable Login: http://100.64.0.20/vulnerable_login.php
+   - Juice Shop: http://100.64.0.20:3000
 
 6. **Monitor Results**
    ```bash
@@ -103,11 +103,11 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
 
 The unified attack script provides:
 
-1. **Network Reconnaissance** - Port scanning and service enumeration
-2. **SQL Injection** - Automated SQLi testing on vulnerable endpoints
-3. **Brute Force** - WordPress login attacks
-4. **DDoS Simulation** - SYN flood and ICMP flood attacks
-5. **Directory Enumeration** - Web directory discovery
+1. **Network Reconnaissance** - Port scanning and service enumeration (port 3000)
+2. **SQL Injection** - Automated SQLi testing on Juice Shop REST API endpoints
+3. **Brute Force** - Juice Shop login attacks
+4. **DDoS Simulation** - SYN flood and ICMP flood attacks targeting port 3000
+5. **Directory Enumeration** - Web directory discovery on Juice Shop
 6. **Coordinated Sequences** - Full attack chains with proper timing
 
 ## Dataset Generation
@@ -118,23 +118,42 @@ The unified attack script provides:
 - **Attack Correlation**: Precise timing correlation with attack markers
 
 ### Output Formats
-- **CSV Dataset**: `security_dataset_YYYYMMDD_HHMMSS.csv`
-- **Attack Subset**: `attacks_only_YYYYMMDD_HHMMSS.csv`
-- **Analysis Report**: `analysis_report_YYYYMMDD_HHMMSS.json`
+- **Eve.json**: Real-time Suricata event logs in JSON format for ML processing
+- **ML Dataset**: `ml_dataset_YYYYMMDD_HHMMSS.csv` - ML-ready features for Random Forest
+- **Suricata Features**: `suricata_features_YYYYMMDD_HHMMSS.csv` - Raw extracted features
+- **Attack Correlation**: Events correlated with attack timing markers
+- **Dataset Statistics**: `ml_dataset_stats.json` - Dataset summary and class distribution
+
+### ML Features Generated
+- **Flow Features**: Packet counts, byte counts, duration, ratios
+- **Network Features**: Port analysis, protocol classification, IP categorization  
+- **Temporal Features**: Time-based patterns, business hours, weekend detection
+- **Attack Labels**: Binary classification (benign/malicious) with attack type classification
+- **Derived Features**: Calculated metrics optimized for Random Forest and other ML algorithms
 
 ### Labels
-- `normal` - Legitimate traffic
-- `attack` - Malicious traffic with specific attack type classification
+- `0` - Benign traffic (normal network activity)
+- `1` - Malicious traffic (attack activity correlated with timing markers)
+- **Attack Types**: Specific attack categories (nmap_scan, sql_injection, brute_force, etc.)
 
 ## Data Collection Directories
 
 ```
 data/
-├── captures/          # Raw packet captures (.pcap) and flows (.arg)
-├── analysis/          # Generated datasets and reports  
+├── captures/          # Raw packet captures (.pcap) and Suricata backup captures
+├── analysis/          # ML datasets, processed features, and statistics
 ├── attacker_logs/     # Attack execution logs and timing markers
-├── victim_logs/       # Target service logs
+├── victim_logs/       # Target service logs (Juice Shop)
 └── switch_logs/       # Network switch logs
+```
+
+### Suricata Log Files
+```
+/var/log/suricata/
+├── eve.json           # Main event log (JSON format for ML processing)
+├── fast.log          # Alert summary log
+├── stats.log         # Performance statistics
+└── suricata.log      # General Suricata system log
 ```
 
 ## Dependencies

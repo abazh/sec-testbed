@@ -1,0 +1,345 @@
+# Suricata configuration for Security Testbed
+# Optimized for ML dataset generation with eve.json output
+
+%YAML 1.1
+---
+
+# Global stats
+stats:
+  enabled: yes
+  interval: 8
+
+# Configure outputs for ML analysis
+outputs:
+  # Main eve.json output for machine learning
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: /captures/eve.json
+      pcap-file: false
+      community-id: false
+      community-id-seed: 0
+      xff:
+        enabled: no
+        mode: extra-data
+        deployment: reverse
+        header: X-Forwarded-For
+
+      types:
+        - alert:
+            payload: yes             # yes|no
+            payload-buffer-size: 4kb # max size of payload buffer to output in eve-log
+            payload-printable: yes   # yes|no
+            packet: yes              # yes|no
+            http-body: yes           # yes|no
+            http-body-printable: yes # yes|no
+            metadata: yes            # yes|no
+            tagged-packets: yes      # yes|no
+        - anomaly:
+            enabled: yes
+        - http:
+            extended: yes            # enable this for extended logging information
+        - dns:
+            query: yes               # enable logging of DNS queries
+            answer: yes              # enable logging of DNS answers
+        - tls:
+            extended: yes            # enable this for extended logging information
+        - files:
+            force-magic: no          # force logging magic on all logged files
+        - drop:
+            alerts: yes              # log alerts that caused drops
+        - smtp:
+        - ssh
+        - stats:
+            totals: yes              # stats for all threads merged together
+            threads: no              # per thread stats
+            deltas: no               # include delta values
+        - flow
+        - netflow
+
+  # Fast log for alerts
+  - fast:
+      enabled: yes
+      filename: /captures/fast.log
+      append: yes
+
+  # Stats log
+  - stats:
+      enabled: yes
+      filename: /captures/stats.log
+      append: yes
+      totals: yes
+      threads: no
+
+# Logging configuration
+logging:
+  default-log-level: notice
+  outputs:
+  - console:
+      enabled: yes
+  - file:
+      enabled: yes
+      level: info
+      filename: /captures/suricata.log
+
+# Network interface configuration
+af-packet:
+  - interface: eth0
+    cluster-id: 99
+    cluster-type: cluster_flow
+    defrag: yes
+    use-mmap: yes
+    tpacket-v3: yes
+
+# Detection engine
+detect-engine:
+  - profile: medium
+  - custom-values:
+      toclient-groups: 3
+      toserver-groups: 25
+  - sgh-mpm-context: auto
+  - inspection-recursion-limit: 3000
+
+# Threading
+threading:
+  set-cpu-affinity: no
+  cpu-affinity:
+    - management-cpu-set:
+        cpu: [ 0 ]
+    - receive-cpu-set:
+        cpu: [ 0 ]
+    - worker-cpu-set:
+        cpu: [ "all" ]
+  detect-thread-ratio: 1.0
+
+# Flow settings
+flow:
+  memcap: 128mb
+  hash-size: 65536
+  prealloc: 10000
+  emergency-recovery: 30
+
+# Stream engine
+stream:
+  memcap: 64mb
+  checksum-validation: yes
+  inline: auto
+  reassembly:
+    memcap: 256mb
+    depth: 1mb
+    toserver-chunk-size: 2560
+    toclient-chunk-size: 2560
+    randomize-chunk-size: yes
+
+# Host table
+host:
+  hash-size: 4096
+  prealloc: 1000
+  memcap: 32mb
+
+# Defrag
+defrag:
+  memcap: 32mb
+  hash-size: 65536
+  trackers: 65536
+  max-frags: 65536
+  prealloc: yes
+  timeout: 60
+
+# Flow timeouts
+flow-timeouts:
+  default:
+    new: 30
+    established: 300
+    closed: 0
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-closed: 0
+    emergency-bypassed: 50
+  tcp:
+    new: 60
+    established: 600
+    closed: 60
+    bypassed: 100
+    emergency-new: 5
+    emergency-established: 25
+    emergency-closed: 10
+    emergency-bypassed: 25
+  udp:
+    new: 30
+    established: 300
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 25
+    emergency-bypassed: 25
+  icmp:
+    new: 30
+    established: 300
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 25
+    emergency-bypassed: 25
+
+# Application layer protocols
+app-layer:
+  protocols:
+    tls:
+      enabled: yes
+      detection-ports:
+        dp: 443
+    http:
+      enabled: yes
+      memcap: 64mb
+      default-config:
+        personality: IDS
+        request-body-limit: 100kb
+        response-body-limit: 100kb
+        request-body-minimal-inspect-size: 32kb
+        request-body-inspect-window: 4kb
+        response-body-minimal-inspect-size: 40kb
+        response-body-inspect-window: 16kb
+        http-body-inline: auto
+        swf-decompression:
+          enabled: yes
+          type: both
+          compress-depth: 100kb
+          decompress-depth: 100kb
+    ssh:
+      enabled: yes
+    smtp:
+      enabled: yes
+      mime:
+        decode-mime: yes
+        decode-base64: yes
+        decode-quoted-printable: yes
+        header-value-depth: 2000
+        extract-urls: yes
+        body-md5: no
+    dns:
+      tcp:
+        enabled: yes
+        detection-ports:
+          dp: 53
+      udp:
+        enabled: yes
+        detection-ports:
+          dp: 53
+
+# Rule engine
+default-rule-path: /var/lib/suricata/rules
+rule-files:
+  - suricata.rules
+
+# Security classification
+classification-file: /etc/suricata/classification.config
+reference-config-file: /etc/suricata/reference.config
+
+# Variables
+vars:
+  address-groups:
+    HOME_NET: "[100.64.0.0/24]"
+    EXTERNAL_NET: "!$HOME_NET"
+    
+    HTTP_SERVERS: "$HOME_NET"
+    SMTP_SERVERS: "$HOME_NET"
+    SQL_SERVERS: "$HOME_NET"
+    DNS_SERVERS: "$HOME_NET"
+    TELNET_SERVERS: "$HOME_NET"
+    AIM_SERVERS: "$EXTERNAL_NET"
+    DC_SERVERS: "$HOME_NET"
+    DNP3_SERVER: "$HOME_NET"
+    DNP3_CLIENT: "$HOME_NET"
+    MODBUS_CLIENT: "$HOME_NET"
+    MODBUS_SERVER: "$HOME_NET"
+    ENIP_CLIENT: "$HOME_NET"
+    ENIP_SERVER: "$HOME_NET"
+
+  port-groups:
+    HTTP_PORTS: "80"
+    SHELLCODE_PORTS: "!80"
+    ORACLE_PORTS: 1521
+    SSH_PORTS: 22
+    DNP3_PORTS: 20000
+    MODBUS_PORTS: 502
+    FILE_DATA_PORTS: "[$HTTP_PORTS,110,143]"
+    FTP_PORTS: 21
+    VXLAN_PORTS: 4789
+    TEREDO_PORTS: 3544
+
+# Host OS policy
+host-os-policy:
+  windows: [0.0.0.0/0]
+  bsd: []
+  bsd-right: []
+  old-linux: []
+  linux: [10.0.0.0/8, 192.168.1.0/24, 100.64.0.0/24, "::1"]
+  old-solaris: []
+  solaris: []
+  hpux10: []
+  hpux11: []
+  irix: []
+  macos: []
+  vista: []
+  windows2k3: []
+
+# Exception policy
+exception-policy: auto
+
+# GeoIP
+#geoip-database: /usr/share/GeoIP/GeoLite2-Country.mmdb
+
+# Profiling
+profiling:
+  rules:
+    enabled: yes
+    filename: /captures/rule_perf.log
+    append: yes
+    sort: avgticks
+    limit: 100
+    json: yes
+
+  keywords:
+    enabled: yes
+    filename: /captures/keyword_perf.log
+    append: yes
+
+  prefilter:
+    enabled: yes
+    filename: /captures/prefilter_perf.log
+    append: yes
+
+  rulegroups:
+    enabled: yes
+    filename: /captures/rule_group_perf.log
+    append: yes
+
+  packets:
+    enabled: yes
+    filename: /captures/packet_stats.log
+    append: yes
+    csv:
+      enabled: no
+      filename: /captures/packet_stats.csv
+
+  locks:
+    enabled: no
+    filename: /captures/lock_stats.log
+    append: yes
+
+  pcap-log:
+    enabled: no
+    filename: /captures/pcaplog_stats.log
+    append: yes
+
+# Coredump configuration
+coredump:
+  max-dump: unlimited
+
+# Memory settings
+memcap: 512mb
+
+# Unix socket
+unix-socket:
+  enabled: yes
+  filename: /var/run/suricata/suricata-command.socket
