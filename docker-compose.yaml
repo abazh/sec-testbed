@@ -23,7 +23,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /lib/modules:/lib/modules:ro
     command: ["/ovs_config.sh"]
-    stop_grace_period: 10s
+    stop_grace_period: 15s
     stop_signal: SIGTERM
     restart: unless-stopped
     healthcheck:
@@ -116,6 +116,7 @@ services:
     volumes:
       - ./data/captures:/captures
       - ./data/analysis:/analysis
+      - ./data/attacker_logs:/logs/attacker_logs
       - ./monitor/scripts:/scripts
     command: ["/start_monitoring.sh"]
     environment:

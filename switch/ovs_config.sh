@@ -32,6 +32,9 @@ die() {
 cleanup() {
     log "Received termination signal, running cleanup..."
     
+    # Kill background health monitoring process
+    jobs -p | xargs -r kill 2>/dev/null || true
+    
     # Run the dedicated cleanup script
     if [ -f "/cleanup_pre_stop.sh" ]; then
         log "Running dedicated pre-stop cleanup script..."
@@ -39,10 +42,16 @@ cleanup() {
     else
         # Fallback cleanup if script not found
         log "Pre-stop script not found, running fallback cleanup..."
+        
+        # Remove mirrors first
         ovs-vsctl --if-exists destroy Mirror mymirror 2>/dev/null || true
         ovs-vsctl --if-exists clear Bridge "$OVS_BRIDGE" mirrors 2>/dev/null || true
+        
+        # Remove the OVS bridge completely
         if ovs-vsctl br-exists "$OVS_BRIDGE" 2>/dev/null; then
+            log "Removing OVS bridge '$OVS_BRIDGE'"
             ovs-vsctl del-br "$OVS_BRIDGE" 2>/dev/null || true
+            log "Removed OVS bridge '$OVS_BRIDGE'"
         fi
     fi
     
@@ -116,7 +125,7 @@ get_veth_for_container() {
     return 1
 }
 
-# Wait for containers to be ready
+# Wait for containers to be readying
 wait_for_containers() {
     log "Waiting for containers..."
     local count=0
@@ -150,7 +159,7 @@ remove_linux_bridge() {
     
     # Remove bridge
     ip link set "$bridge_name" down 2>/dev/null || true
-    ip link delete "$bridge_name" type bridge 2>/dev/null || brctl delbr "$bridge_name" 2>/dev/null || true
+    brctl delbr "$bridge_name" 2>/dev/null || true
     
     # Verify removal
     [ ! -d "/sys/class/net/$bridge_name" ] || die "Failed to remove bridge $bridge_name"
@@ -278,7 +287,10 @@ main() {
             sleep 10
             configure_ovs
         fi
-    done
+    done &
+    
+    # Wait for background health monitoring
+    wait
 }
 
 main "$@"

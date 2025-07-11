@@ -12,7 +12,7 @@ echo "Resetting Security Testbed..."
 # Stop all containers
 echo "Stopping containers..."
 cd "$PROJECT_ROOT"
-docker-compose down -v --remove-orphans 2>/dev/null || true
+docker compose down -v --remove-orphans 2>/dev/null || true
 
 # Clean all data
 echo "Cleaning all data..."

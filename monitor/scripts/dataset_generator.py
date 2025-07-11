@@ -20,9 +20,46 @@ class StreamlinedDatasetGenerator:
         self.output_dir = output_dir
         self.attack_markers = {}
         
+    def _parse_address(self, addr_str):
+        """Parse address string in format IP.port or IP"""
+        if not addr_str or addr_str == '*':
+            return '0.0.0.0', '0'
+        
+        # Split on last dot to separate IP and port
+        if '.' in addr_str:
+            parts = addr_str.rsplit('.', 1)
+            if len(parts) == 2 and (parts[1].startswith('0x') or parts[1].isdigit()):
+                return parts[0], parts[1]
+        
+        # If no port found, return the whole string as IP
+        return addr_str, '0'
+    
+    def _safe_int(self, value):
+        """Safely convert value to integer, handling hex and invalid values"""
+        if value == '*' or not value:
+            return 0
+        try:
+            # Handle hexadecimal values
+            if value.startswith('0x'):
+                return int(value, 16)
+            # Handle regular integers
+            return int(value)
+        except (ValueError, TypeError):
+            # Return 0 for IPv6 addresses or other non-numeric values
+            return 0
+    
+    def _safe_float(self, value):
+        """Safely convert value to float"""
+        if value == '*' or not value:
+            return 0.0
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
+    
     def load_attack_markers(self):
         """Load attack timing markers for correlation"""
-        marker_file = "/data/attacker_logs/attack_markers.log"
+        marker_file = "/logs/attacker_logs/attack_markers.log"
         if os.path.exists(marker_file):
             with open(marker_file, 'r') as f:
                 for line in f:
@@ -39,30 +76,36 @@ class StreamlinedDatasetGenerator:
         logger.info(f"Loaded {len(self.attack_markers)} attack markers")
     
     def extract_flow_features(self, argus_file):
-        """Extract features from Argus flow data using ra client"""
+        """Extract features from Argus flow data using ra client with delimiter"""
         features = []
         try:
-            cmd = ["ra", "-r", argus_file, "-s", "stime", "dur", "flgs", "proto", "saddr", "sport", "daddr", "dport", "pkts", "bytes", "state"]
+            # Use delimiter '5' to separate fields clearly
+            cmd = ["ra", "-r", argus_file, "-s", "stime,dur,flgs,proto,saddr,sport,daddr,dport,pkts,bytes,state", "-c", "5"]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             
-            for line in result.stdout.split('\n')[1:]:  # Skip header
-                if line.strip():
-                    parts = line.split()
+            for line in result.stdout.split('\n'):
+                if line.strip() and not "StartTime" in line and not line.startswith('ra['):
+                    # Split by delimiter '5'
+                    parts = line.split('5')
                     if len(parts) >= 11:
-                        feature = {
-                            'timestamp': parts[0],
-                            'duration': float(parts[1]) if parts[1] != '*' else 0.0,
-                            'flags': parts[2],
-                            'protocol': parts[3],
-                            'src_ip': parts[4],
-                            'src_port': parts[5] if parts[5] != '*' else '0',
-                            'dst_ip': parts[6], 
-                            'dst_port': parts[7] if parts[7] != '*' else '0',
-                            'packets': int(parts[8]) if parts[8] != '*' else 0,
-                            'bytes': int(parts[9]) if parts[9] != '*' else 0,
-                            'state': parts[10] if len(parts) > 10 else 'UNK'
-                        }
-                        features.append(feature)
+                        try:
+                            feature = {
+                                'timestamp': parts[0],
+                                'duration': self._safe_float(parts[1]),
+                                'flags': parts[2],
+                                'protocol': parts[3],
+                                'src_ip': parts[4],
+                                'src_port': parts[5],
+                                'dst_ip': parts[6],
+                                'dst_port': parts[7],
+                                'packets': self._safe_int(parts[8]),
+                                'bytes': self._safe_int(parts[9]),
+                                'state': parts[10]
+                            }
+                            features.append(feature)
+                        except Exception as e:
+                            logger.debug(f"Error parsing line: {line[:100]} - {e}")
+                            continue
         except Exception as e:
             logger.error(f"Error processing Argus file {argus_file}: {e}")
         
@@ -74,24 +117,45 @@ class StreamlinedDatasetGenerator:
             feature['label'] = 'normal'
             feature['attack_type'] = 'none'
             
-            # Heuristic-based attack detection
-            # SYN flood detection
-            if (feature.get('flags') == 'S' and 
-                feature.get('packets', 0) > 50):
-                feature['label'] = 'attack'
-                feature['attack_type'] = 'SYN_FLOOD'
+            # Check for timestamp-based attack correlation
+            timestamp = feature.get('timestamp', '')
+            if timestamp:
+                # Convert timestamp to match attack marker format (approximate)
+                for marker_time, marker_info in self.attack_markers.items():
+                    if marker_info['action'] == 'START':
+                        # Simple time-based correlation (you could make this more precise)
+                        if timestamp.startswith(marker_time.split(' ')[1][:5]):  # Match HH:MM
+                            feature['label'] = 'attack'
+                            feature['attack_type'] = marker_info['type']
+                            break
             
-            # ICMP flood detection
-            elif (feature.get('protocol') == 'icmp' and
-                  feature.get('packets', 0) > 20):
-                feature['label'] = 'attack'
-                feature['attack_type'] = 'ICMP_FLOOD'
-            
-            # Port scanning detection
-            elif (feature.get('packets', 0) <= 3 and
-                  feature.get('state') in ['REJ', 'RST']):
-                feature['label'] = 'attack'
-                feature['attack_type'] = 'PORT_SCAN'
+            # Heuristic-based attack detection for flows without timestamp correlation
+            if feature['label'] == 'normal':
+                # SYN flood detection - many SYN packets to same destination
+                if (feature.get('flags') == 'S' and 
+                    feature.get('packets', 0) > 50):
+                    feature['label'] = 'attack'
+                    feature['attack_type'] = 'SYN_FLOOD'
+                
+                # ICMP flood detection 
+                elif (feature.get('protocol') == 'icmp' and
+                      feature.get('src_ip', '').startswith('100.64.0.') and
+                      feature.get('dst_ip', '').startswith('100.64.0.')):
+                    feature['label'] = 'attack'
+                    feature['attack_type'] = 'ICMP_FLOOD'
+                
+                # Port scanning detection - connection attempts with rejects/resets
+                elif (feature.get('packets', 0) <= 3 and
+                      feature.get('state') in ['REJ', 'RST', 'FIN']):
+                    feature['label'] = 'attack'
+                    feature['attack_type'] = 'PORT_SCAN'
+                
+                # HTTP-based attacks (SQL injection, directory scan, brute force)
+                elif (feature.get('protocol') == 'tcp' and
+                      feature.get('dst_port') in ['80', '0x0050'] and  # Port 80
+                      feature.get('packets', 0) > 1):
+                    feature['label'] = 'attack'
+                    feature['attack_type'] = 'HTTP_ATTACK'
         
         return features
     

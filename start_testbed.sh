@@ -20,7 +20,7 @@ chmod +x attacker/attack_scenarios/*.sh 2>/dev/null || true
 
 # Build and start
 log "Starting security testbed..."
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
 
 log "Waiting for containers to start..."
 sleep 10
@@ -50,9 +50,9 @@ echo "  Victim:    docker exec -it sec_victim bash"
 echo "  Monitor:   docker exec -it sec_monitor bash"
 echo ""
 echo "Services:"
-echo "  WordPress: http://100.64.0.20/wordpress"
-echo "  OJS:       http://100.64.0.20:8081"
-echo "  Vuln Page: http://100.64.0.20/vulnerable_login.php"
+echo "  WordPress: http://victim/wordpress"
+echo "  OJS:       http://victim:8081"
+echo "  Vuln Page: http://victim/vulnerable_login.php"
 echo ""
 echo "Quick Start:"
 echo "  Run attacks: docker exec -it sec_attacker ./attack_scenarios/attack_tools.sh"

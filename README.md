@@ -73,13 +73,13 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
 
 3. **Start Testbed**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 4. **Run Attacks**
    ```bash
    # Access attacker container
-   docker exec -it sec_attacker bash
+   docker compose exec -it attacker bash
    
    # Run attack tools
    ./attack_scenarios/attack_tools.sh
@@ -153,7 +153,7 @@ data/
 ## Stopping the Testbed
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ## Research Applications

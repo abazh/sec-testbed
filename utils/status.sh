@@ -15,7 +15,7 @@ echo
 # Container status
 echo "Container Status:"
 cd "$PROJECT_ROOT"
-docker-compose ps 2>/dev/null || echo "No containers running"
+docker compose ps 2>/dev/null || echo "No containers running"
 echo
 
 # Data directory size
