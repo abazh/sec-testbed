@@ -57,17 +57,17 @@ services:
     depends_on:
       switch:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '${ATTACKER_CPU_LIMIT:-1.0}'
-          memory: '${ATTACKER_MEMORY_LIMIT:-1G}'
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '${ATTACKER_CPU_LIMIT:-1.0}'
+    #       memory: '${ATTACKER_MEMORY_LIMIT:-1G}'
     restart: unless-stopped
     labels:
       - "com.sec-testbed.service=attacker"
       - "com.sec-testbed.component=simulation"
 
-  # Victim Container - Connected to OVS bridge
+  # Victim Container - Connected to OVS bridge - Running OWASP Juice Shop
   victim:
     build: ./victim
     container_name: sec_victim
@@ -79,24 +79,21 @@ services:
       - NET_ADMIN
     volumes:
       - ./data/victim_logs:/logs
-      - ./data/wordpress:/var/www/html/wordpress
-      - ./data/ojs:/var/www/html/ojs
     environment:
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-vulnerable123}
-      - MYSQL_DATABASE=${MYSQL_DATABASE:-wordpress}
-      - MYSQL_USER=${MYSQL_USER:-wpuser}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-wppass}
+      - NODE_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "3000:3000"
     tty: true
     stdin_open: true
     depends_on:
       switch:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '${VICTIM_CPU_LIMIT:-2.0}'
-          memory: '${VICTIM_MEMORY_LIMIT:-2G}'
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '${VICTIM_CPU_LIMIT:-2.0}'
+    #       memory: '${VICTIM_MEMORY_LIMIT:-2G}'
     restart: unless-stopped
     labels:
       - "com.sec-testbed.service=victim"
@@ -128,11 +125,11 @@ services:
     depends_on:
       switch:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '${MONITOR_CPU_LIMIT:-1.0}'
-          memory: '${MONITOR_MEMORY_LIMIT:-1G}'
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '${MONITOR_CPU_LIMIT:-1.0}'
+    #       memory: '${MONITOR_MEMORY_LIMIT:-1G}'
     restart: unless-stopped
     labels:
       - "com.sec-testbed.service=monitor"

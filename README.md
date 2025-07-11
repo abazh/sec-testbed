@@ -37,13 +37,11 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
   - Attack timing markers for dataset correlation
   - Coordinated attack sequences
 
-### 2. **Victim Container** (100.64.0.20:80, 100.64.0.20:8081)
+### 2. **Victim Container** (100.64.0.20:3000)
 - **Purpose**: Host vulnerable services as attack targets
 - **Services**:
-  - WordPress (port 80) - `/wordpress`
-  - OJS (port 8081) - Open Journal Systems
-  - Vulnerable login page - `/vulnerable_login.php`
-- **Databases**: MySQL with intentionally weak credentials
+  - OWASP Juice Shop (port 3000) - Modern vulnerable web application
+- **Features**: Comprehensive web application security testing platform with multiple vulnerability categories
 
 ### 3. **Monitor Container** (100.64.0.30)
 - **Purpose**: Capture and analyze all network traffic
@@ -86,9 +84,7 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
    ```
 
 5. **Access Services**
-   - WordPress: http://100.64.0.20/wordpress
-   - OJS: http://100.64.0.20:8081
-   - Vulnerable Login: http://100.64.0.20/vulnerable_login.php
+   - Juice Shop: http://100.64.0.20:3000
 
 6. **Monitor Results**
    ```bash
@@ -103,11 +99,11 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
 
 The unified attack script provides:
 
-1. **Network Reconnaissance** - Port scanning and service enumeration
-2. **SQL Injection** - Automated SQLi testing on vulnerable endpoints
-3. **Brute Force** - WordPress login attacks
-4. **DDoS Simulation** - SYN flood and ICMP flood attacks
-5. **Directory Enumeration** - Web directory discovery
+1. **Network Reconnaissance** - Port scanning and service enumeration (port 3000)
+2. **SQL Injection** - Automated SQLi testing on Juice Shop REST API endpoints
+3. **Brute Force** - Juice Shop login attacks
+4. **DDoS Simulation** - SYN flood and ICMP flood attacks targeting port 3000
+5. **Directory Enumeration** - Web directory discovery on Juice Shop
 6. **Coordinated Sequences** - Full attack chains with proper timing
 
 ## Dataset Generation
@@ -133,7 +129,7 @@ data/
 ├── captures/          # Raw packet captures (.pcap) and flows (.arg)
 ├── analysis/          # Generated datasets and reports  
 ├── attacker_logs/     # Attack execution logs and timing markers
-├── victim_logs/       # Target service logs
+├── victim_logs/       # Target service logs (Juice Shop)
 └── switch_logs/       # Network switch logs
 ```
 

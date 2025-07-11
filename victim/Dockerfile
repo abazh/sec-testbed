@@ -26,6 +26,7 @@ RUN echo 'APT::Install-Recommends "0";' | tee -a /etc/apt/apt.conf.d/01norecomme
     nano \
     net-tools \
     iputils-ping \
+    netcat-openbsd \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/cache/apt/archives/*
@@ -40,37 +41,28 @@ RUN echo 'root:vulnerable' | chpasswd
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
 RUN sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
-# Download and setup WordPress (commonly used version for security testing)
-WORKDIR /var/www/html
-RUN wget --no-check-certificate https://wordpress.org/wordpress-5.8.tar.gz \
-    && tar -xzf wordpress-5.8.tar.gz \
-    && rm wordpress-5.8.tar.gz \
-    && chown -R www-data:www-data wordpress
+# Install Node.js and npm for Juice Shop - update certificates first
+RUN apt-get update && apt-get install -y ca-certificates curl gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
 
-# Download and setup OJS (commonly used version)  
-RUN wget --no-check-certificate https://pkp.sfu.ca/ojs/download/ojs-3.3.0-4.tar.gz \
-    && tar -xzf ojs-3.3.0-4.tar.gz \
-    && mv ojs-3.3.0-4 ojs \
-    && rm ojs-3.3.0-4.tar.gz \
-    && chown -R www-data:www-data ojs
+# Download and setup OWASP Juice Shop
+WORKDIR /opt
+RUN wget --no-check-certificate https://github.com/juice-shop/juice-shop/releases/download/v15.3.0/juice-shop-15.3.0_node18_linux_x64.tgz \
+    && tar -xzf juice-shop-15.3.0_node18_linux_x64.tgz \
+    && rm juice-shop-15.3.0_node18_linux_x64.tgz \
+    && chown -R www-data:www-data juice-shop_15.3.0
 
-# Create vulnerable PHP info page
-RUN echo "<?php phpinfo(); ?>" > /var/www/html/info.php
+# Create a simple info page for the testbed
+RUN echo "<h1>Security Testbed - Victim Container</h1><p>OWASP Juice Shop running on port 3000</p>" > /var/www/html/index.html
 
-# Create a simple vulnerable login page
-COPY vulnerable_login.php /var/www/html/
-COPY setup_databases.sh /
-RUN chmod +x /setup_databases.sh
+# Configure Apache for basic info page
+RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
-# Configure Apache virtual hosts
-COPY apache_config.conf /etc/apache2/sites-available/testbed.conf
-RUN a2ensite testbed.conf
-RUN a2dissite 000-default.conf
+# Create startup script for Juice Shop
+COPY start_juiceshop.sh /
+RUN chmod +x /start_juiceshop.sh
 
-# Create startup script
-COPY start_services.sh /
-RUN chmod +x /start_services.sh
+# EXPOSE 3000 22 80
 
-# EXPOSE 80 22 3306 8081
-
-CMD ["/start_services.sh"]
+CMD ["/start_juiceshop.sh"]
