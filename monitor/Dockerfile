@@ -57,17 +57,19 @@ RUN pip3 install --no-cache-dir --upgrade pip \
     pyshark
 
 # Create directories for logs and scripts
-RUN mkdir -p /logs /analysis_scripts /captures /analysis 
+RUN mkdir -p /logs /scripts /captures /analysis 
 
 # Copy monitoring scripts
 COPY start_monitoring.sh /
-RUN chmod +x /start_monitoring.sh
+COPY scripts/ /scripts/
+COPY healthcheck.sh /usr/local/bin/
+RUN chmod +x /start_monitoring.sh /usr/local/bin/healthcheck.sh
 
 # Configure log rotation
 COPY logrotate.conf /etc/logrotate.d/testbed
 
 # Working directory
-WORKDIR /analysis_scripts
+WORKDIR /scripts
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

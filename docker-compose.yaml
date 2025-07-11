@@ -23,8 +23,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /lib/modules:/lib/modules:ro
     command: ["/ovs_config.sh"]
-    pre_stop:
-      - command: ["/cleanup_pre_stop.sh"]
     stop_grace_period: 10s
     stop_signal: SIGTERM
     restart: unless-stopped
@@ -64,9 +62,6 @@ services:
         limits:
           cpus: '${ATTACKER_CPU_LIMIT:-1.0}'
           memory: '${ATTACKER_MEMORY_LIMIT:-1G}'
-        reservations:
-          cpus: '0.5'
-          memory: '512M'
     restart: unless-stopped
     labels:
       - "com.sec-testbed.service=attacker"
@@ -102,9 +97,6 @@ services:
         limits:
           cpus: '${VICTIM_CPU_LIMIT:-2.0}'
           memory: '${VICTIM_MEMORY_LIMIT:-2G}'
-        reservations:
-          cpus: '1.0'
-          memory: '1G'
     restart: unless-stopped
     labels:
       - "com.sec-testbed.service=victim"
@@ -124,7 +116,7 @@ services:
     volumes:
       - ./data/captures:/captures
       - ./data/analysis:/analysis
-      - ./monitor/scripts:/analysis_scripts
+      - ./monitor/scripts:/scripts
     command: ["/start_monitoring.sh"]
     environment:
       - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-eth0}
@@ -140,9 +132,6 @@ services:
         limits:
           cpus: '${MONITOR_CPU_LIMIT:-1.0}'
           memory: '${MONITOR_MEMORY_LIMIT:-1G}'
-        reservations:
-          cpus: '0.5'
-          memory: '512M'
     restart: unless-stopped
     labels:
       - "com.sec-testbed.service=monitor"

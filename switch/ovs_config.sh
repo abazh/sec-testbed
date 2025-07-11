@@ -30,9 +30,21 @@ die() {
 
 # Cleanup handler
 cleanup() {
-    log "Cleaning up..."
-    ovs-vsctl --if-exists destroy Mirror mymirror 2>/dev/null || true
-    ovs-vsctl --if-exists clear Bridge "$OVS_BRIDGE" mirrors 2>/dev/null || true
+    log "Received termination signal, running cleanup..."
+    
+    # Run the dedicated cleanup script
+    if [ -f "/cleanup_pre_stop.sh" ]; then
+        log "Running dedicated pre-stop cleanup script..."
+        bash /cleanup_pre_stop.sh
+    else
+        # Fallback cleanup if script not found
+        log "Pre-stop script not found, running fallback cleanup..."
+        ovs-vsctl --if-exists destroy Mirror mymirror 2>/dev/null || true
+        ovs-vsctl --if-exists clear Bridge "$OVS_BRIDGE" mirrors 2>/dev/null || true
+        if ovs-vsctl br-exists "$OVS_BRIDGE" 2>/dev/null; then
+            ovs-vsctl del-br "$OVS_BRIDGE" 2>/dev/null || true
+        fi
+    fi
     
     # Optional: Restore original veth names if needed
     # This helps with Docker cleanup but is not strictly necessary
@@ -49,6 +61,7 @@ cleanup() {
         fi
     done
     
+    log "Cleanup completed"
     exit 0
 }
 trap cleanup TERM INT
