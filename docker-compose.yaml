@@ -99,7 +99,7 @@ services:
       - "com.sec-testbed.service=victim"
       - "com.sec-testbed.component=target"
 
-  # Network Monitor Container - Connected to OVS bridge  
+  # Network Monitor Container - Connected to OVS bridge - Running Suricata IDS
   monitor:
     build: ./monitor
     container_name: sec_monitor
@@ -110,12 +110,22 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+      - SYS_NICE
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    privileged: true
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
     volumes:
       - ./data/captures:/captures
       - ./data/analysis:/analysis
       - ./data/attacker_logs:/logs/attacker_logs
       - ./monitor/scripts:/scripts
-    command: ["/start_monitoring.sh"]
+      - ./monitor/suricata.yaml:/etc/suricata/suricata.yaml
+      - ./monitor/start_suricata_monitoring.sh:/start_suricata_monitoring.sh
+    command: ["/start_suricata_monitoring.sh"]
     environment:
       - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-eth0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
