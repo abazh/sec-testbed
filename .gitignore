@@ -142,3 +142,6 @@ load-test-data/
 
 # Custom user additions (add your local ignores here)
 # *.local
+
+# Exclude GitHub configuration and workflow files
+.github/

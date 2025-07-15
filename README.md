@@ -77,12 +77,14 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
    ```
 
 4. **Run Attacks**
+   # Option 1: Enter attacker container interactively
    ```bash
-   # Access attacker container
    docker compose exec -it attacker bash
-   
-   # Run attack tools
    ./attack_scenarios/attack_tools.sh
+   ```
+   # Option 2: Run attack script directly from host (recommended)
+   ```bash
+   docker compose exec attacker ./attack_scenarios/attack_tools.sh
    ```
 
 5. **Access Services**
@@ -94,10 +96,64 @@ A simplified Docker-based security testbed for generating meaningful cybersecuri
    ```bash
    # Check captures
    ls data/captures/
-   
    # View generated datasets
    ls data/analysis/
    ```
+
+## How to Run Attacks
+
+To generate attack traffic and labeled events:
+
+- **Recommended:** Run the attack tools script directly from the host:
+  ```bash
+  docker compose exec attacker ./attack_scenarios/attack_tools.sh
+  ```
+- **Alternatively:** Enter the attacker container interactively:
+  ```bash
+  docker compose exec -it attacker bash
+  ./attack_scenarios/attack_tools.sh
+  ```
+
+Select attack scenarios from the interactive menu:
+- Network Scan
+- SQL Injection Test
+- WordPress Brute Force
+- Directory Enumeration
+- SYN Flood Attack
+- ICMP Flood Attack
+- Run Full Attack Sequence
+- Show Attack Logs
+
+Each attack produces a labeled log file in `/logs` (see attack types table in the script for details).
+
+## Checking and Interpreting Datasets
+
+After running attacks, datasets are generated and stored in the monitor container:
+
+- **Raw captures:**
+  ```bash
+  ls data/captures/
+  ```
+- **Labeled datasets and reports:**
+  ```bash
+  ls data/analysis/
+  head data/analysis/security_dataset_*.csv
+  cat data/analysis/analysis_report_*.json
+  ```
+- **Attack markers for correlation:**
+  ```bash
+  cat data/attacker_logs/attack_markers.log
+  ```
+
+### Interpreting Results
+- **CSV files** contain flow-level features and labels (`normal` or `attack` with type).
+- **JSON reports** summarize attack/normal flow counts and percentages.
+- **Attack markers** allow precise correlation between attacks and network flows.
+
+## Troubleshooting Attack & Dataset Generation
+- If logs are missing, verify the attacker container is running and `/logs` is writable.
+- If datasets are empty, ensure attacks were executed and monitor container is healthy.
+- For network issues, check port mirroring and container IPs as described above.
 
 ## Attack Scenarios
 

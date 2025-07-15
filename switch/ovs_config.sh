@@ -283,7 +283,7 @@ main() {
         sleep 60
         if ! ovs-vsctl show >/dev/null 2>&1; then
             log "OVS connection lost, restarting..."
-            /usr/share/openvswitch/scripts/ovs-ctl restart
+            service openvswitch-switch restart
             sleep 10
             configure_ovs
         fi
