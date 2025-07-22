@@ -1,8 +1,8 @@
 <?php
 // Vulnerable login page for testing
-$servername = "localhost";
-$username_db = "root";
-$password_db = "vulnerable123";
+$servername = "127.0.0.1";
+$username_db = "testuser";
+$password_db = "testpass";
 $dbname = "testbed";
 
 if ($_POST['username'] && $_POST['password']) {

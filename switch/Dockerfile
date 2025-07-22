@@ -54,4 +54,7 @@ LABEL maintainer="Security Testbed Team" \
       network.mode="host" \
       privileges.required="true"
 
+# Production stage
+FROM base AS production
+
 ENTRYPOINT ["/entrypoint.sh"]

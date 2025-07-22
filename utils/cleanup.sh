@@ -214,9 +214,15 @@ for subdir in "captures" "analysis" "attacker_logs" "switch_logs" "victim_logs";
     fi
 done
 
-# Remove empty directories (but keep structure)
+# Remove empty directories (but keep core structure)
 echo "  Removing empty subdirectories..."
-find "$DATA_DIR" -type d -empty -not -path "$DATA_DIR" -not -name "ojs" -not -name "wordpress" -delete 2>/dev/null || true
+# Protect core testbed directories that should always exist
+find "$DATA_DIR" -type d -empty -not -path "$DATA_DIR" \
+    -not -name "ojs" -not -name "wordpress" \
+    -not -name "analysis" -not -name "captures" \
+    -not -name "attacker_logs" -not -name "switch_logs" \
+    -not -name "victim_logs" -not -name "monitor_logs" \
+    -delete 2>/dev/null || true
 
 echo ""
 echo "✅ Cleanup completed!"

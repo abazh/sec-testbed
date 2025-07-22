@@ -1,7 +1,8 @@
 services:
   # Network Switch with Pure OVS - Must start first
   switch:
-    build: ./switch
+    build: 
+      context: ./switch
     container_name: sec_switch
     hostname: switch
     network_mode: host
@@ -17,41 +18,57 @@ services:
       switch: "127.0.1.1"
       host.docker.internal: "host-gateway"
     volumes:
-      - ./switch/ovs_config.sh:/ovs_config.sh
-      - ./switch/cleanup_pre_stop.sh:/cleanup_pre_stop.sh
+      - ./switch/ovs_config.sh:/ovs_config.sh:ro
+      - ./switch/cleanup_pre_stop.sh:/cleanup_pre_stop.sh:ro
       - ./data/switch_logs:/logs
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /lib/modules:/lib/modules:ro
     command: ["/ovs_config.sh"]
-    stop_grace_period: 15s
+    stop_grace_period: 30s
     stop_signal: SIGTERM
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ovs-vsctl", "show"]
       interval: 10s
-      timeout: 5s
-      retries: 3
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - OVS_BRIDGE_NAME=${OVS_BRIDGE_NAME:-ovs-br0}
+      - TESTBED_SUBNET=${TESTBED_SUBNET:-100.64.0.0/24}
+      - TESTBED_GATEWAY=${TESTBED_GATEWAY:-100.64.0.1}
+      - ATTACKER_IP=${ATTACKER_IP:-100.64.0.10}
+      - VICTIM_IP=${VICTIM_IP:-100.64.0.20}
+      - MONITOR_IP=${MONITOR_IP:-100.64.0.30}
+      - TESTBED_CONTAINER_TIMEOUT=${TESTBED_CONTAINER_TIMEOUT:-60}
+      - TESTBED_CONNECTIVITY_TIMEOUT=${TESTBED_CONNECTIVITY_TIMEOUT:-2}
+      - TESTBED_HEALTH_INTERVAL=${TESTBED_HEALTH_INTERVAL:-60}
     labels:
       - "com.sec-testbed.service=switch"
       - "com.sec-testbed.component=network"
+      - "com.sec-testbed.version=1.0"
 
   # Attacker Container - Connected to OVS bridge
   attacker:
-    build: ./attacker
+    build: 
+      context: ./attacker
     container_name: sec_attacker
     hostname: attacker
     networks:
       ovs_bridge:
-        ipv4_address: 100.64.0.10
+        ipv4_address: ${ATTACKER_IP:-100.64.0.10}
     cap_add:
       - NET_ADMIN
       - SYS_ADMIN
     volumes:
       - ./data/attacker_logs:/logs
-      - ./attacker/attack_scenarios:/attack_scenarios
+      - ./attacker/attack_scenarios:/attack_scenarios:ro
     environment:
       - TARGET_IP=${VICTIM_IP:-100.64.0.20}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ATTACK_DELAY_MIN=30
+      - ATTACK_DELAY_MAX=60
     tty: true
     stdin_open: true
     depends_on:
@@ -62,31 +79,52 @@ services:
         limits:
           cpus: '${ATTACKER_CPU_LIMIT:-1.0}'
           memory: '${ATTACKER_MEMORY_LIMIT:-1G}'
+        reservations:
+          cpus: '0.25'
+          memory: '256M'
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ping", "-c", "1", "${VICTIM_IP:-100.64.0.20}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     labels:
       - "com.sec-testbed.service=attacker"
       - "com.sec-testbed.component=simulation"
+      - "com.sec-testbed.version=1.0"
 
   # Victim Container - Connected to OVS bridge
   victim:
-    build: ./victim
+    build: 
+      context: ./victim
     container_name: sec_victim
     hostname: victim
     networks:
       ovs_bridge:
-        ipv4_address: 100.64.0.20
+        ipv4_address: ${VICTIM_IP:-100.64.0.20}
     cap_add:
       - NET_ADMIN
+    ports:
+      - "8080:80"
+      - "8443:443"
     volumes:
+      - ./victim/scripts:/scripts:ro
       - ./data/victim_logs:/logs
-      - ./data/wordpress:/var/www/html/wordpress
-      - ./data/ojs:/var/www/html/ojs
+      - victim_mysql_data:/var/lib/mysql
+      - victim_wordpress_data:/var/www/html/wordpress
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-vulnerable123}
-      - MYSQL_DATABASE=${MYSQL_DATABASE:-wordpress}
-      - MYSQL_USER=${MYSQL_USER:-wpuser}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-wppass}
+      - WP_DATABASE=${WP_DATABASE:-wordpress}
+      - WP_USER=${WP_USER:-wpuser}
+      - WP_PASSWORD=${WP_PASSWORD:-wppass}
+      - WP_URL=${WP_URL:-http://victim/wordpress}
+      - WP_TITLE=${WP_TITLE:-"Security Testbed Victim"}
+      - WP_ADMIN_USER=${WP_ADMIN_USER:-admin}
+      - WP_ADMIN_PASSWORD=${WP_ADMIN_PASSWORD:-admin}
+      - WP_ADMIN_EMAIL=${WP_ADMIN_EMAIL:-admin@example.com}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SECURITY_MODE=${SECURITY_MODE:-research}
     tty: true
     stdin_open: true
     depends_on:
@@ -97,32 +135,48 @@ services:
         limits:
           cpus: '${VICTIM_CPU_LIMIT:-2.0}'
           memory: '${VICTIM_MEMORY_LIMIT:-2G}'
+        reservations:
+          cpus: '0.5'
+          memory: '512M'
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost/vulnerable_login.php || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     labels:
       - "com.sec-testbed.service=victim"
       - "com.sec-testbed.component=target"
+      - "com.sec-testbed.version=1.0"
 
   # Network Monitor Container - Connected to OVS bridge  
   monitor:
-    build: ./monitor
+    build: 
+      context: ./monitor
     container_name: sec_monitor
     hostname: monitor
     networks:
       ovs_bridge:
-        ipv4_address: 100.64.0.30
+        ipv4_address: ${MONITOR_IP:-100.64.0.30}
     cap_add:
       - NET_ADMIN
-      - NET_RAW
+      - SYS_ADMIN
+      - SYS_NICE
     volumes:
       - ./data/captures:/captures
       - ./data/analysis:/analysis
-      - ./data/attacker_logs:/logs/attacker_logs
-      - ./monitor/scripts:/scripts
+      - ./data/monitor_logs:/logs 
+      - ./monitor/scripts:/scripts:ro
+      - ./data/attacker_logs:/attacker_logs:ro
+
     command: ["/start_monitoring.sh"]
     environment:
       - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-eth0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - RETENTION_DAYS=${LOG_RETENTION_DAYS:-7}
+      - ANALYSIS_INTERVAL=300
+      - MAX_CAPTURE_SIZE=1G
     tty: true
     stdin_open: true
     depends_on:
@@ -133,10 +187,31 @@ services:
         limits:
           cpus: '${MONITOR_CPU_LIMIT:-1.0}'
           memory: '${MONITOR_MEMORY_LIMIT:-1G}'
+        reservations:
+          cpus: '0.25'
+          memory: '256M'
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "tcpdump"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     labels:
       - "com.sec-testbed.service=monitor"
       - "com.sec-testbed.component=analysis"
+      - "com.sec-testbed.version=1.0"
+
+# Persistent volumes for data retention
+volumes:
+  victim_mysql_data:
+    driver: local
+    labels:
+      - "com.sec-testbed.volume=mysql"
+  victim_wordpress_data:
+    driver: local
+    labels:
+      - "com.sec-testbed.volume=wordpress"
 
 # Docker bridge network that OVS will take over
 networks:
@@ -152,3 +227,4 @@ networks:
       com.docker.network.bridge.name: ${OVS_BRIDGE_NAME:-ovs-br0}
     labels:
       - "com.sec-testbed.network=main"
+      - "com.sec-testbed.version=1.0"

@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
 """
 Streamlined Dataset Generator for Security Testbed
-
-This script processes Argus flow files and attack marker logs to generate labeled datasets for security research. It extracts flow-level features, correlates attacks using timing markers, and outputs CSV and JSON reports for further analysis.
-
-Usage:
-    python dataset_generator.py --input /captures --output /analysis
-
-Dependencies:
-    - Argus (ra client)
-    - Python 3.6+
-
-Author: abazh
-Date: 2025-07-15
+Focus: Attack correlation and meaningful feature extraction
 """
 
 import argparse
@@ -20,82 +9,58 @@ import os
 import subprocess
 import json
 import logging
+import traceback
 from datetime import datetime
-from typing import List, Dict, Any, Tuple
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [DATASET] %(message)s')
 logger = logging.getLogger(__name__)
 
 class StreamlinedDatasetGenerator:
-    """
-    Processes Argus flow files and attack marker logs to generate labeled datasets.
-
-    Attributes:
-        input_dir (str): Directory containing Argus flow files (.arg).
-        output_dir (str): Directory to save generated datasets and reports.
-        attack_markers (Dict[str, Dict[str, str]]): Loaded attack timing markers.
-    """
-    def __init__(self, input_dir: str = "/captures", output_dir: str = "/analysis"):
+    def __init__(self, input_dir="/captures", output_dir="/analysis"):
         self.input_dir = input_dir
         self.output_dir = output_dir
-        self.attack_markers: Dict[str, Dict[str, str]] = {}
-
-    def _parse_address(self, addr_str: str) -> Tuple[str, str]:
-        """
-        Parse address string in format IP.port or IP.
-
-        Parameters:
-            addr_str (str): Address string.
-        Returns:
-            Tuple[str, str]: IP and port.
-        """
+        self.attack_markers = {}
+        
+    def _parse_address(self, addr_str):
+        """Parse address string in format IP.port or IP"""
         if not addr_str or addr_str == '*':
             return '0.0.0.0', '0'
+        
+        # Split on last dot to separate IP and port
         if '.' in addr_str:
             parts = addr_str.rsplit('.', 1)
             if len(parts) == 2 and (parts[1].startswith('0x') or parts[1].isdigit()):
                 return parts[0], parts[1]
+        
+        # If no port found, return the whole string as IP
         return addr_str, '0'
-
-    def _safe_int(self, value: str) -> int:
-        """
-        Safely convert value to integer, handling hex and invalid values.
-
-        Parameters:
-            value (str): Value to convert.
-        Returns:
-            int: Converted integer or 0 if invalid.
-        """
+    
+    def _safe_int(self, value):
+        """Safely convert value to integer, handling hex and invalid values"""
         if value == '*' or not value:
             return 0
         try:
+            # Handle hexadecimal values
             if value.startswith('0x'):
                 return int(value, 16)
+            # Handle regular integers
             return int(value)
         except (ValueError, TypeError):
+            # Return 0 for IPv6 addresses or other non-numeric values
             return 0
-
-    def _safe_float(self, value: str) -> float:
-        """
-        Safely convert value to float.
-
-        Parameters:
-            value (str): Value to convert.
-        Returns:
-            float: Converted float or 0.0 if invalid.
-        """
+    
+    def _safe_float(self, value):
+        """Safely convert value to float"""
         if value == '*' or not value:
             return 0.0
         try:
             return float(value)
         except (ValueError, TypeError):
             return 0.0
-
-    def load_attack_markers(self) -> None:
-        """
-        Load attack timing markers for correlation from log file.
-        """
-        marker_file = "/logs/attacker_logs/attack_markers.log"
+    
+    def load_attack_markers(self):
+        """Load attack timing markers for correlation"""
+        marker_file = "/attacker_logs/attack_markers.log"
         if os.path.exists(marker_file):
             with open(marker_file, 'r') as f:
                 for line in f:
@@ -110,140 +75,257 @@ class StreamlinedDatasetGenerator:
                                 'action': action
                             }
         logger.info(f"Loaded {len(self.attack_markers)} attack markers")
-
-    def extract_flow_features(self, argus_file: str) -> List[Dict[str, Any]]:
-        """
-        Extract features from Argus flow data using ra client with delimiter.
-
-        Parameters:
-            argus_file (str): Path to Argus flow file.
-        Returns:
-            List[Dict[str, Any]]: List of extracted flow features.
-        """
-        features = []
+        
+        # Debug: Print loaded markers for verification
+        for timestamp, marker_info in self.attack_markers.items():
+            logger.info(f"Marker: {timestamp} - {marker_info['type']} ({marker_info['action']})")
+    
+    def process_flow_features_streaming(self, argus_file, output_file):
+        """Process and write features directly from Argus flow data - true streaming approach"""
+        processed_lines = 0
+        attack_flows = 0
+        
         try:
-            cmd = ["ra", "-r", argus_file, "-s", "stime,dur,flgs,proto,saddr,sport,daddr,dport,pkts,bytes,state", "-c", "5"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            for line in result.stdout.split('\n'):
-                if line.strip() and not "StartTime" in line and not line.startswith('ra['):
-                    parts = line.split('5')
-                    if len(parts) >= 11:
-                        try:
-                            feature = {
-                                'timestamp': parts[0],
-                                'duration': self._safe_float(parts[1]),
-                                'flags': parts[2],
-                                'protocol': parts[3],
-                                'src_ip': parts[4],
-                                'src_port': parts[5],
-                                'dst_ip': parts[6],
-                                'dst_port': parts[7],
-                                'packets': self._safe_int(parts[8]),
-                                'bytes': self._safe_int(parts[9]),
-                                'state': parts[10]
-                            }
-                            features.append(feature)
-                        except Exception as e:
-                            logger.debug(f"Error parsing line: {line[:100]} - {e}")
-                            continue
+            # Check file size first
+            file_size = os.path.getsize(argus_file)
+            logger.info(f"Processing argus file: {os.path.basename(argus_file)} ({file_size / (1024*1024):.1f} MB)")
+            
+            # Use delimiter '|' to separate fields clearly
+            cmd = ["ra", "-r", argus_file, "-s", "stime,dur,flgs,proto,saddr,sport,daddr,dport,pkts,bytes,state", "-c", "|"]
+            
+            # Use streaming processing instead of capturing all output at once
+            logger.info("Starting ra command...")
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            
+            # Process output line by line and write immediately
+            header_skipped = False
+            batch_features = []
+            batch_size = 500  # Process in smaller batches for better memory management
+            
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                    
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # Skip header line
+                if not header_skipped and "StartTime" in line:
+                    header_skipped = True
+                    continue
+                    
+                # Skip error lines
+                if line.startswith('ra['):
+                    continue
+                    
+                # Split by delimiter '|'
+                parts = line.split('|')
+                if len(parts) >= 11:
+                    try:
+                        feature = {
+                            'timestamp': parts[0],
+                            'duration': self._safe_float(parts[1]),
+                            'flags': parts[2],
+                            'protocol': parts[3],
+                            'src_ip': parts[4],
+                            'src_port': parts[5],
+                            'dst_ip': parts[6],
+                            'dst_port': parts[7],
+                            'packets': self._safe_int(parts[8]),
+                            'bytes': self._safe_int(parts[9]),
+                            'state': parts[10]
+                        }
+                        
+                        # Label the feature immediately
+                        labeled_feature = self.label_single_feature(feature)
+                        batch_features.append(labeled_feature)
+                        
+                        if labeled_feature.get('label') == 'attack':
+                            attack_flows += 1
+                        
+                        processed_lines += 1
+                        
+                        # Write batch when it reaches batch_size
+                        if len(batch_features) >= batch_size:
+                            self.write_features_batch(output_file, batch_features)
+                            batch_features = []  # Clear batch
+                        
+                        # Progress reporting every 10000 lines
+                        if processed_lines % 10000 == 0:
+                            logger.info(f"Processed {processed_lines:,} flow records...")
+                            
+                    except Exception as e:
+                        logger.debug(f"Error parsing line: {line[:100]} - {e}")
+                        continue
+            
+            # Write remaining features in the final batch
+            if batch_features:
+                self.write_features_batch(output_file, batch_features)
+            
+            # Wait for process to complete and check for errors
+            return_code = process.wait()
+            if return_code != 0:
+                stderr_output = process.stderr.read()
+                logger.error(f"ra command failed with return code {return_code}: {stderr_output}")
+                
+            logger.info(f"Successfully processed {processed_lines:,} flow records from {os.path.basename(argus_file)}")
+            
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout while processing {argus_file}")
+            if 'process' in locals():
+                process.kill()
         except Exception as e:
             logger.error(f"Error processing Argus file {argus_file}: {e}")
-        return features
-
-    def label_features(self, features: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Label flows with attack correlation and heuristics.
-
-        Parameters:
-            features (List[Dict[str, Any]]): List of flow features.
-        Returns:
-            List[Dict[str, Any]]: Labeled features.
-        """
-        for feature in features:
-            feature['label'] = 'normal'
-            feature['attack_type'] = 'none'
-            timestamp = feature.get('timestamp', '')
-            if timestamp:
-                for marker_time, marker_info in self.attack_markers.items():
-                    if marker_info['action'] == 'START':
-                        if timestamp.startswith(marker_time.split(' ')[1][:5]):
-                            feature['label'] = 'attack'
-                            feature['attack_type'] = marker_info['type']
-                            break
-            if feature['label'] == 'normal':
-                if (feature.get('flags') == 'S' and feature.get('packets', 0) > 50):
-                    feature['label'] = 'attack'
-                    feature['attack_type'] = 'SYN_FLOOD'
-                elif (feature.get('protocol') == 'icmp' and
-                      feature.get('src_ip', '').startswith('100.64.0.') and
-                      feature.get('dst_ip', '').startswith('100.64.0.')):
-                    feature['label'] = 'attack'
-                    feature['attack_type'] = 'ICMP_FLOOD'
-                elif (feature.get('packets', 0) <= 3 and
-                      feature.get('state') in ['REJ', 'RST', 'FIN']):
-                    feature['label'] = 'attack'
-                    feature['attack_type'] = 'PORT_SCAN'
-                elif (feature.get('protocol') == 'tcp' and
-                      feature.get('dst_port') in ['80', '0x0050'] and
-                      feature.get('packets', 0) > 1):
-                    feature['label'] = 'attack'
-                    feature['attack_type'] = 'HTTP_ATTACK'
-        return features
-
-    def generate_dataset(self) -> None:
-        """
-        Generate labeled dataset from Argus captures and attack markers.
-        Outputs CSV and JSON summary report.
-        """
-        logger.info("Starting dataset generation...")
-        os.makedirs(self.output_dir, exist_ok=True)
-        all_features: List[Dict[str, Any]] = []
-        self.load_attack_markers()
-        for filename in os.listdir(self.input_dir):
-            if filename.endswith('.arg'):
-                argus_path = os.path.join(self.input_dir, filename)
-                logger.info(f"Processing {filename}...")
-                features = self.extract_flow_features(argus_path)
-                labeled_features = self.label_features(features)
-                all_features.extend(labeled_features)
-        if not all_features:
-            logger.warning("No features extracted")
-            return
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = os.path.join(self.output_dir, f"security_dataset_{timestamp}.csv")
-        with open(output_file, 'w') as f:
-            headers = list(all_features[0].keys())
-            f.write(','.join(headers) + '\n')
-            for feature in all_features:
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        return processed_lines, attack_flows
+    
+    def label_single_feature(self, feature):
+        """Label a single flow with attack correlation and heuristics"""
+        feature['label'] = 'normal'
+        feature['attack_type'] = 'none'
+        
+        # Check for timestamp-based attack correlation
+        timestamp = feature.get('timestamp', '')
+        if timestamp:
+            # Convert timestamp to match attack marker format (approximate)
+            for marker_time, marker_info in self.attack_markers.items():
+                if marker_info['action'] == 'START':
+                    # Simple time-based correlation (you could make this more precise)
+                    if timestamp.startswith(marker_time.split(' ')[1][:5]):  # Match HH:MM
+                        feature['label'] = 'attack'
+                        feature['attack_type'] = marker_info['type']
+                        break
+        
+        # Heuristic-based attack detection for flows without timestamp correlation
+        if feature['label'] == 'normal':
+            # SYN flood detection - many SYN packets to same destination
+            if (feature.get('flags') == 'S' and 
+                feature.get('packets', 0) > 50):
+                feature['label'] = 'attack'
+                feature['attack_type'] = 'SYN_FLOOD'
+            
+            # ICMP flood detection 
+            elif (feature.get('protocol') == 'icmp' and
+                  feature.get('src_ip', '').startswith('100.64.0.') and
+                  feature.get('dst_ip', '').startswith('100.64.0.')):
+                feature['label'] = 'attack'
+                feature['attack_type'] = 'ICMP_FLOOD'
+            
+            # Port scanning detection - connection attempts with rejects/resets
+            elif (feature.get('packets', 0) <= 3 and
+                  feature.get('state') in ['REJ', 'RST', 'FIN']):
+                feature['label'] = 'attack'
+                feature['attack_type'] = 'PORT_SCAN'
+            
+            # HTTP-based attacks (SQL injection, directory scan, brute force)
+            elif (feature.get('protocol') == 'tcp' and
+                  feature.get('dst_port') in ['80', '0x0050'] and  # Port 80
+                  feature.get('packets', 0) > 1):
+                feature['label'] = 'attack'
+                feature['attack_type'] = 'HTTP_ATTACK'
+        
+        return feature
+    
+    def write_features_batch(self, output_file, features_batch):
+        """Write a batch of features to the output file"""
+        headers = ['timestamp', 'duration', 'flags', 'protocol', 'src_ip', 'src_port', 
+                  'dst_ip', 'dst_port', 'packets', 'bytes', 'state', 'label', 'attack_type']
+        
+        with open(output_file, 'a') as f:  # Append mode
+            for feature in features_batch:
                 values = [str(feature.get(h, '')) for h in headers]
                 f.write(','.join(values) + '\n')
+    
+    def generate_dataset(self):
+        """Generate labeled dataset from captures with true streaming processing"""
+        logger.info("Starting dataset generation...")
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        # Load attack markers
+        self.load_attack_markers()
+        
+        # Get list of argus files
+        argus_files = [f for f in os.listdir(self.input_dir) if f.endswith('.arg')]
+        if not argus_files:
+            logger.warning("No .arg files found in input directory")
+            return
+            
+        logger.info(f"Found {len(argus_files)} argus files to process")
+        
+        # Prepare output file 
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = os.path.join(self.output_dir, f"security_dataset_{timestamp}.csv")
+        
+        # Write header first
+        headers = ['timestamp', 'duration', 'flags', 'protocol', 'src_ip', 'src_port', 
+                  'dst_ip', 'dst_port', 'packets', 'bytes', 'state', 'label', 'attack_type']
+        with open(output_file, 'w') as f:
+            f.write(','.join(headers) + '\n')
+        
+        total_flows = 0
+        total_attack_flows = 0
+        
+        # Process files one by one with true streaming
+        for filename in argus_files:
+            argus_path = os.path.join(self.input_dir, filename)
+            logger.info(f"Processing {filename}...")
+            
+            try:
+                # Process file with streaming approach
+                file_flows, file_attacks = self.process_flow_features_streaming(argus_path, output_file)
+                
+                total_flows += file_flows
+                total_attack_flows += file_attacks
+                
+                logger.info(f"File {filename}: {file_flows:,} flows ({file_attacks:,} attacks)")
+                
+            except Exception as e:
+                logger.error(f"Error processing file {filename}: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                continue
+        
+        if total_flows == 0:
+            logger.warning("No features extracted from any files")
+            return
+        
         logger.info(f"Saved dataset: {output_file}")
-        attack_count = sum(1 for f in all_features if f['label'] == 'attack')
-        normal_count = len(all_features) - attack_count
+        
+        # Generate summary report
+        normal_flows = total_flows - total_attack_flows
+        
         report = {
             'timestamp': timestamp,
-            'total_flows': len(all_features),
-            'attack_flows': attack_count,
-            'normal_flows': normal_count,
-            'attack_percentage': (attack_count / len(all_features)) * 100 if all_features else 0
+            'total_flows': total_flows,
+            'attack_flows': total_attack_flows,
+            'normal_flows': normal_flows,
+            'attack_percentage': (total_attack_flows / total_flows) * 100 if total_flows > 0 else 0,
+            'files_processed': len(argus_files)
         }
+        
         report_file = os.path.join(self.output_dir, f"analysis_report_{timestamp}.json")
         with open(report_file, 'w') as f:
             json.dump(report, f, indent=2)
-        logger.info(f"Dataset contains {attack_count} attacks and {normal_count} normal flows")
+        
+        logger.info(f"Dataset generation complete!")
+        logger.info(f"Total flows: {total_flows:,}")
+        logger.info(f"Attack flows: {total_attack_flows:,} ({report['attack_percentage']:.1f}%)")
+        logger.info(f"Normal flows: {normal_flows:,}")
         logger.info(f"Analysis report saved: {report_file}")
 
-def main() -> None:
-    """
-    Main entry point for dataset generation script.
-    Parses command-line arguments and runs the generator.
-    """
+def main():
     parser = argparse.ArgumentParser(description='Generate security dataset')
     parser.add_argument('--input', default='/captures', help='Input directory')
     parser.add_argument('--output', default='/analysis', help='Output directory')
     parser.add_argument('--correlate-attacks', action='store_true', 
                        help='Process attack correlation')
+    
     args = parser.parse_args()
+    
     generator = StreamlinedDatasetGenerator(args.input, args.output)
     generator.generate_dataset()
 

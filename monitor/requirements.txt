@@ -1,0 +1,6 @@
+# Python requirements for monitor container
+pandas>=2.0.0
+numpy>=1.24.0
+scapy>=2.5.0
+dpkt>=1.9.8
+pyshark>=0.6.0

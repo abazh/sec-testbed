@@ -5,18 +5,24 @@
 
 set -euo pipefail
 
-# Configuration
-OVS_BRIDGE="ovs-br0"
-DOCKER_NETWORK="sec-testbed"
-NETWORK_SUBNET="100.64.0.0/24"
-ATTACKER_IP="100.64.0.10"
-VICTIM_IP="100.64.0.20"
-MONITOR_IP="100.64.0.30"
+# Configuration - Use same environment variables as Docker Compose
+readonly OVS_BRIDGE="${OVS_BRIDGE_NAME:-ovs-br0}"
+readonly DOCKER_NETWORK="sec-testbed"  # Fixed network name from docker-compose
+readonly NETWORK_SUBNET="${TESTBED_SUBNET:-100.64.0.0/24}"
+readonly BRIDGE_IP="${TESTBED_GATEWAY:-100.64.0.1}/24"
+readonly ATTACKER_IP="${ATTACKER_IP:-100.64.0.10}"
+readonly VICTIM_IP="${VICTIM_IP:-100.64.0.20}"
+readonly MONITOR_IP="${MONITOR_IP:-100.64.0.30}"
 
-# Container names
-ATTACKER_CONTAINER="sec_attacker"
-VICTIM_CONTAINER="sec_victim"
-MONITOR_CONTAINER="sec_monitor"
+# Container names - Use same as Docker Compose
+readonly ATTACKER_CONTAINER="sec_attacker"
+readonly VICTIM_CONTAINER="sec_victim"  
+readonly MONITOR_CONTAINER="sec_monitor"
+
+# Runtime configuration
+readonly CONTAINER_WAIT_TIMEOUT="${TESTBED_CONTAINER_TIMEOUT:-60}"
+readonly CONNECTIVITY_TIMEOUT="${TESTBED_CONNECTIVITY_TIMEOUT:-2}"
+readonly HEALTH_CHECK_INTERVAL="${TESTBED_HEALTH_INTERVAL:-60}"
 
 # Logging
 log() {
@@ -26,6 +32,38 @@ log() {
 die() {
     log "ERROR: $1"
     exit 1
+}
+
+# Configuration validation and logging
+validate_config() {
+    log "=== Configuration Validation ==="
+    log "OVS Bridge: $OVS_BRIDGE"
+    log "Docker Network: $DOCKER_NETWORK"
+    log "Network Subnet: $NETWORK_SUBNET"
+    log "Bridge IP: $BRIDGE_IP"
+    log "Container IPs: Attacker=$ATTACKER_IP, Victim=$VICTIM_IP, Monitor=$MONITOR_IP"
+    log "Container Names: $ATTACKER_CONTAINER, $VICTIM_CONTAINER, $MONITOR_CONTAINER"
+    log "Timeouts: Container=${CONTAINER_WAIT_TIMEOUT}s, Connectivity=${CONNECTIVITY_TIMEOUT}s, Health=${HEALTH_CHECK_INTERVAL}s"
+    
+    # Validate network configuration
+    if ! [[ "$NETWORK_SUBNET" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        die "Invalid network subnet format: $NETWORK_SUBNET"
+    fi
+    
+    if ! [[ "$BRIDGE_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        die "Invalid bridge IP format: $BRIDGE_IP"
+    fi
+    
+    # Validate IP addresses
+    for ip_var in "ATTACKER_IP:$ATTACKER_IP" "VICTIM_IP:$VICTIM_IP" "MONITOR_IP:$MONITOR_IP"; do
+        local name="${ip_var%:*}"
+        local ip="${ip_var#*:}"
+        if ! [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            die "Invalid IP address for $name: $ip"
+        fi
+    done
+    
+    log "✓ Configuration validation passed"
 }
 
 # Cleanup handler
@@ -81,7 +119,7 @@ ovs-vsctl show >/dev/null 2>&1 || die "OpenVSwitch not running"
 # Get container veth interface and rename it for easy identification
 get_veth_for_container() {
     local container_name=$1
-    local container_id peer_ifindex veth new_veth_name
+    local container_id peer_ifindex veth new_veth_name old_veth
     
     container_id=$(docker ps -q --filter "name=$container_name" 2>/dev/null) || return 1
     [ -n "$container_id" ] || return 1
@@ -106,6 +144,13 @@ get_veth_for_container() {
         if [ -n "$peer_ifindex" ]; then
             veth=$(ip link show | awk -v idx="$peer_ifindex" -F': ' '$1 == idx {print $2}' | awk -F'@' '{print $1}')
             if [ -n "$veth" ] && [ "$veth" != "$new_veth_name" ]; then
+                old_veth="$veth"
+                # Remove old veth from OVS bridge if it exists there
+                if ovs-vsctl list-ports "$OVS_BRIDGE" 2>/dev/null | grep -q "^$old_veth$"; then
+                    log "Removing old veth $old_veth from OVS bridge before rename"
+                    ovs-vsctl del-port "$OVS_BRIDGE" "$old_veth" 2>/dev/null || true
+                fi
+                
                 # Rename the veth interface
                 log "Renaming $veth to $new_veth_name"
                 ip link set "$veth" name "$new_veth_name" || {
@@ -125,11 +170,13 @@ get_veth_for_container() {
     return 1
 }
 
-# Wait for containers to be readying
+# Wait for containers to be ready
 wait_for_containers() {
     log "Waiting for containers..."
     local count=0
-    while [ $count -lt 30 ]; do
+    local max_wait=$((CONTAINER_WAIT_TIMEOUT / 2))  # Check every 2 seconds
+    
+    while [ $count -lt $max_wait ]; do
         if docker network ls | grep -q "$DOCKER_NETWORK" && \
            docker ps | grep -q "$ATTACKER_CONTAINER" && \
            docker ps | grep -q "$VICTIM_CONTAINER" && \
@@ -139,7 +186,7 @@ wait_for_containers() {
         sleep 2
         count=$((count + 1))
     done
-    die "Containers not ready after 60s"
+    die "Containers not ready after ${CONTAINER_WAIT_TIMEOUT}s"
 }
 
 # Remove Linux bridge completely
@@ -187,6 +234,24 @@ configure_ovs() {
     
     wait_for_containers
     
+    # Clean up any orphaned veth interfaces from previous runs
+    cleanup_orphaned_veths() {
+        log "Cleaning up orphaned veth interfaces..."
+        if ovs-vsctl br-exists "$OVS_BRIDGE" 2>/dev/null; then
+            # Get all ports currently in the bridge
+            local bridge_ports=$(ovs-vsctl list-ports "$OVS_BRIDGE" 2>/dev/null || echo "")
+            for port in $bridge_ports; do
+                # Check if the interface actually exists
+                if ! ip link show "$port" >/dev/null 2>&1; then
+                    log "Removing orphaned port $port from OVS bridge"
+                    ovs-vsctl del-port "$OVS_BRIDGE" "$port" 2>/dev/null || true
+                fi
+            done
+        fi
+    }
+    
+    cleanup_orphaned_veths
+    
     # Handle existing Docker bridge
     if [ -d "/sys/class/net/$OVS_BRIDGE/bridge" ]; then
         log "Converting Docker bridge to OVS bridge..."
@@ -200,10 +265,10 @@ configure_ovs() {
             [ -d "/sys/class/net/$iface" ] && add_port_to_ovs "$OVS_BRIDGE" "$iface"
         done
         
-        ip addr add 100.64.0.1/24 dev "$OVS_BRIDGE" 2>/dev/null || true
+        ip addr add "$BRIDGE_IP" dev "$OVS_BRIDGE" 2>/dev/null || true
     else
         ovs-vsctl br-exists "$OVS_BRIDGE" || ovs-vsctl add-br "$OVS_BRIDGE"
-        ip addr add 100.64.0.1/24 dev "$OVS_BRIDGE" 2>/dev/null || true
+        ip addr add "$BRIDGE_IP" dev "$OVS_BRIDGE" 2>/dev/null || true
     fi
     
     ip link set "$OVS_BRIDGE" up
@@ -248,6 +313,9 @@ configure_ovs() {
 main() {
     log "=== Security Testbed OVS Configuration ===="
     
+    # Validate configuration first
+    validate_config
+    
     configure_ovs
     
     # Verify configuration
@@ -256,7 +324,7 @@ main() {
     # Test connectivity
     log "Testing connectivity..."
     for ip in $ATTACKER_IP $VICTIM_IP $MONITOR_IP; do
-        if ping -c 1 -W 2 "$ip" >/dev/null 2>&1; then
+        if ping -c 1 -W "$CONNECTIVITY_TIMEOUT" "$ip" >/dev/null 2>&1; then
             log "✓ $ip reachable"
         else
             log "✗ $ip not reachable"
@@ -280,7 +348,7 @@ main() {
     
     # Health monitoring loop
     while true; do
-        sleep 60
+        sleep "$HEALTH_CHECK_INTERVAL"
         if ! ovs-vsctl show >/dev/null 2>&1; then
             log "OVS connection lost, restarting..."
             service openvswitch-switch restart

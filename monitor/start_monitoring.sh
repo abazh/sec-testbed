@@ -61,7 +61,7 @@ trap cleanup EXIT TERM INT
 log "=== Starting monitoring services ==="
 start_capture
 start_argus
-process_attack_markers
+# process_attack_markers
 
 # Log startup
 {
@@ -73,7 +73,7 @@ process_attack_markers
 log "=== Monitoring Active ==="
 log "✓ Full packet capture (tcpdump)"
 log "✓ Flow monitoring (argus)"
-log "✓ Attack correlation processor"
+# log "✓ Attack correlation processor"
 
 # Keep the container running and monitor processes
 while true; do

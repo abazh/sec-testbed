@@ -1,229 +1,183 @@
-# Security Testbed - Streamlined Research Environment
+# Security Testbed - Research Environment
 
 > **⚠️ CRITICAL WARNING**: This testbed contains intentionally vulnerable services. Use ONLY in isolated environments for educational and research purposes.
 
 ## Overview
 
-A simplified Docker-based security testbed for generating meaningful cybersecurity datasets. The environment consists of three core components connected through OpenVSwitch with port mirroring for comprehensive traffic analysis.
+A modernized Docker-based security testbed for generating high-quality cybersecurity datasets for ML/AI research. Features enhanced attack correlation, improved monitoring, and comprehensive analysis capabilities.
 
-### Purpose
-- **Dataset Generation**: Create labeled datasets for ML/AI security research
-- **Attack Simulation**: Test various attack scenarios in controlled environment  
-- **Network Monitoring**: Capture and analyze attack patterns with proper correlation
-- **Security Research**: Evaluate detection algorithms and security tools
+### Key Features
+- Dataset generation with attack correlation and timing markers
+- Automated attack orchestration and labeling
+- Comprehensive monitoring: full packet capture and flow analysis
+- Health monitoring: container health checks and service validation
+- Resource management: optimized container resource allocation
 
 ## Architecture
 
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Attacker  │    │     OvS     │    │   Victim    │
-│ 100.64.0.10 │────│ 100.64.0.1  │────│ 100.64.0.20 │
-└─────────────┘    └──────┬──────┘    └─────────────┘
-                          │
-                          │ (mirrored traffic)
-                ┌─────────┴─────────┐
-                │      Monitor      │
-                │    100.64.0.30    │
-                └───────────────────┘
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Attacker      │    │      OvS        │    │     Victim      │
+│  100.64.0.10    │────│   100.64.0.1    │────│  100.64.0.20    │
+│                 │    │   (ovs-br0)     │    │                 │
+│ • Attack Tools  │    │                 │    │ • WordPress     │
+│ • Correlation   │    │                 │    │ • Vuln Services │
+└─────────────────┘    └────────┬────────┘    └─────────────────┘
+                                │
+                                │ (port-mirrored traffic)
+                      ┌─────────┴─────────┐
+                      │      Monitor      │
+                      │   100.64.0.30     │
+                      │                   │
+                      │ • Traffic Capture │
+                      │ • Flow Analysis   │
+                      │ • Dataset Gen     │
+                      └───────────────────┘
+```
+
+## Quick Start
+
+```bash
+# 1. Clone and setup
+git clone <repository>
+cd sec-testbed
+
+# 2. Start testbed
+./start_testbed.sh
+or 
+make start
+
+# 3. Check status
+./utils/status.sh
+or
+make status
+
+# 4. Run attacks (automated)
+docker compose exec attacker bash
+./attack_scenarios/attack_tools.sh --automated
+or
+make attack-automated
+
+# 5. Generate dataset
+docker compose exec monitor python3 /scripts/dataset_generator.py
+or 
+make generate-dataset
+
+# 6. Clean up or Reset
+make clean
+or
+make reset
 ```
 
 ## Components
 
 ### 1. **Attacker Container** (100.64.0.10)
-- **Purpose**: Generate attack traffic with proper labeling
-- **Tools**: nmap, sqlmap, hydra, hping3, dirb
-- **Key Features**: 
-  - Unified attack script (`attack_tools.sh`)
-  - Attack timing markers for dataset correlation
-  - Coordinated attack sequences
+- **Tools**: nmap, sqlmap, hydra, hping3, dirb, nikto
+- **Features**: 
+  - Attack orchestration with `attack_tools.sh`
+  - Logging and correlation markers
+  - Configurable attack timing and retries
 
-### 2. **Victim Container** (100.64.0.20:80, 100.64.0.20:8081)
-- **Purpose**: Host vulnerable services as attack targets
+### 2. **Victim Container** (100.64.0.20)
 - **Services**:
-  - WordPress (port 80) - `/wordpress`
-  - OJS (port 8081) - Open Journal Systems
-  - Vulnerable login page - `/vulnerable_login.php`
-- **Databases**: MySQL with intentionally weak credentials
+  - WordPress (port 80) with intentional vulnerabilities
+  - Vulnerable login page (`/vulnerable_login.php`)
+  - MySQL database with weak credentials
+- **Features**:
+  - Health monitoring and service validation
+  - Persistent data volumes
+  - Enhanced logging and monitoring
 
 ### 3. **Monitor Container** (100.64.0.30)
-- **Purpose**: Capture and analyze all network traffic
-- **Key Features**:
-  - Full packet capture (tcpdump)
-  - Flow analysis (Argus with all important features)
-  - Attack correlation processor
-  - Automated dataset generation
+- **Capabilities**:
+  - Full packet capture with tcpdump
+  - Flow analysis with Argus
+  - Dataset generation
+  - Attack correlation and labeling
 
 ### 4. **Switch Container** (Host Network)
-- **Purpose**: OpenVSwitch with port mirroring
-- **Features**: Transparent traffic mirroring to monitor
+- **Features**:
+  - OpenVSwitch with port mirroring
+  - Enhanced health monitoring
+  - Graceful shutdown handling
+  - Network isolation and security
 
-## Quick Start
+## Management Commands
 
-1. **Setup Environment**
-   ```bash
-   git clone <repository>
-   cd sec-testbed
-   ```
+```bash
+make help              # Show all available commands
+make start             # Start the testbed
+make status            # Check detailed status
+make attack-automated  # Run all attacks
+make generate-dataset  # Create ML dataset
+make clean             # Clean up resources
 
-2. **Configure (Optional)**
-   ```bash
-   # Edit .env file if needed - defaults work for most cases
-   nano .env
-   ```
-
-3. **Start Testbed**
-   ```bash
-   docker compose up -d
-   ```
-
-4. **Run Attacks**
-   # Option 1: Enter attacker container interactively
-   ```bash
-   docker compose exec -it attacker bash
-   ./attack_scenarios/attack_tools.sh
-   ```
-   # Option 2: Run attack script directly from host (recommended)
-   ```bash
-   docker compose exec attacker ./attack_scenarios/attack_tools.sh
-   ```
-
-5. **Access Services**
-   - WordPress: http://100.64.0.20/wordpress
-   - OJS: http://100.64.0.20:8081
-   - Vulnerable Login: http://100.64.0.20/vulnerable_login.php
-
-6. **Monitor Results**
-   ```bash
-   # Check captures
-   ls data/captures/
-   # View generated datasets
-   ls data/analysis/
-   ```
-
-## How to Run Attacks
-
-To generate attack traffic and labeled events:
-
-- **Recommended:** Run the attack tools script directly from the host:
-  ```bash
-  docker compose exec attacker ./attack_scenarios/attack_tools.sh
-  ```
-- **Alternatively:** Enter the attacker container interactively:
-  ```bash
-  docker compose exec -it attacker bash
-  ./attack_scenarios/attack_tools.sh
-  ```
-
-Select attack scenarios from the interactive menu:
-- Network Scan
-- SQL Injection Test
-- WordPress Brute Force
-- Directory Enumeration
-- SYN Flood Attack
-- ICMP Flood Attack
-- Run Full Attack Sequence
-- Show Attack Logs
-
-Each attack produces a labeled log file in `/logs` (see attack types table in the script for details).
-
-## Checking and Interpreting Datasets
-
-After running attacks, datasets are generated and stored in the monitor container:
-
-- **Raw captures:**
-  ```bash
-  ls data/captures/
-  ```
-- **Labeled datasets and reports:**
-  ```bash
-  ls data/analysis/
-  head data/analysis/security_dataset_*.csv
-  cat data/analysis/analysis_report_*.json
-  ```
-- **Attack markers for correlation:**
-  ```bash
-  cat data/attacker_logs/attack_markers.log
-  ```
-
-### Interpreting Results
-- **CSV files** contain flow-level features and labels (`normal` or `attack` with type).
-- **JSON reports** summarize attack/normal flow counts and percentages.
-- **Attack markers** allow precise correlation between attacks and network flows.
-
-## Troubleshooting Attack & Dataset Generation
-- If logs are missing, verify the attacker container is running and `/logs` is writable.
-- If datasets are empty, ensure attacks were executed and monitor container is healthy.
-- For network issues, check port mirroring and container IPs as described above.
+# Direct script usage
+./start_testbed.sh     # Startup script
+./utils/status.sh      # Status check
+```
 
 ## Attack Scenarios
 
-The unified attack script provides:
 
-1. **Network Reconnaissance** - Port scanning and service enumeration
-2. **SQL Injection** - Automated SQLi testing on vulnerable endpoints
-3. **Brute Force** - WordPress login attacks
-4. **DDoS Simulation** - SYN flood and ICMP flood attacks
-5. **Directory Enumeration** - Web directory discovery
-6. **Coordinated Sequences** - Full attack chains with proper timing
+The attack tools support multiple execution modes:
+
+```bash
+# Interactive mode
+docker compose exec attacker bash
+./attack_scenarios/attack_tools.sh --interactive
+
+# Automated sequence
+docker compose exec attacker bash
+./attack_scenarios/attack_tools.sh --automated
+
+# Single attack
+docker compose exec attacker bash
+./attack_scenarios/attack_tools.sh --attack nmap
+```
+
+### Available Attacks:
+- **Network Scan**: Comprehensive nmap reconnaissance
+- **SYN Flood**: DDoS attack simulation
+- **SQL Injection**: Automated vulnerability testing
+- **WordPress Brute Force**: Authentication bypass attempts
+- **Directory Enumeration**: Web application discovery
 
 ## Dataset Generation
 
-### Features Extracted
-- **Flow-level**: Duration, packet count, byte count, flags, protocol
-- **Behavioral**: Connection states, port patterns, timing analysis
-- **Attack Correlation**: Precise timing correlation with attack markers
 
-### Output Formats
-- **CSV Dataset**: `security_dataset_YYYYMMDD_HHMMSS.csv`
-- **Attack Subset**: `attacks_only_YYYYMMDD_HHMMSS.csv`
-- **Analysis Report**: `analysis_report_YYYYMMDD_HHMMSS.json`
-
-### Labels
-- `normal` - Legitimate traffic
-- `attack` - Malicious traffic with specific attack type classification
-
-## Data Collection Directories
-
-```
-data/
-├── captures/          # Raw packet captures (.pcap) and flows (.arg)
-├── analysis/          # Generated datasets and reports  
-├── attacker_logs/     # Attack execution logs and timing markers
-├── victim_logs/       # Target service logs
-└── switch_logs/       # Network switch logs
-```
-
-## Dependencies
-
-- Docker & Docker Compose
-- OpenVSwitch (installed in switch container)
-- Linux host with network privileges
-
-## Security Considerations
-
-- **Isolation**: Always run in isolated networks
-- **No Internet**: Never expose to public internet
-- **Weak Credentials**: Intentionally vulnerable - for research only
-- **Clean Up**: Stop containers when not in use
-
-## Stopping the Testbed
+Dataset generation:
 
 ```bash
-docker compose down
+# Generate dataset
+docker compose exec monitor python3 /scripts/dataset_generator.py
 ```
 
-## Research Applications
+**Note:** Output is typically written to `data/analysis/` as logs or CSV, depending on script configuration. Check the script and output directory for available formats.
 
-1. **Intrusion Detection**: Train ML models on labeled attack data
-2. **Anomaly Detection**: Develop behavioral analysis algorithms  
-3. **Threat Intelligence**: Study attack patterns and signatures
-4. **Security Tool Testing**: Validate detection capabilities
+---
 
-## Troubleshooting
+**Version**: 1.0  
+**Compatibility**: Docker 20.10+, Docker Compose 2.0+
+  ```
+- Each log ends with a summary line for easy interpretation.
+- Marker logs now include attack descriptions for context.
 
-- **OVS Issues**: Check `docker logs sec_switch`
-- **No Traffic**: Verify port mirroring with `ovs-vsctl list Mirror`
-- **Service Access**: Confirm container IPs with `docker network inspect sec-testbed`
+### Step 3: Generate and Check Datasets
+- Datasets are generated automatically by the monitor container after attacks.
+- View datasets and reports:
+
+  ```bash
+  ls data/analysis/
+  head data/analysis/*.csv  # If CSVs are generated
+  cat data/analysis/*.log   # For logs
+  ```
+# Attack markers allow you to correlate attacks with network flows in the dataset.
+
+### Step 4: Troubleshooting Tips
+- If you see 'no such file or directory' errors, check the script path (`/attack_scenarios/attack_tools.sh`).
+- If logs or datasets are missing, ensure all containers are healthy and attacks were executed.
+- For connectivity issues, verify port mirroring and container IPs as described above.
 
 ---
 

@@ -1,15 +1,31 @@
 # Multi-stage build for security testbed attacker container
-FROM ubuntu:22.04 AS base
+FROM ubuntu:24.04 AS base
+
+# Build arguments
+ARG DEBIAN_FRONTEND=noninteractive
+ARG BUILD_DATE
+ARG VERSION=1.0
 
 # Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC \
+    PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+    
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Update and install essential tools (lightweight, no GUI)
-RUN echo 'APT::Install-Recommends "0";' | tee -a /etc/apt/apt.conf.d/01norecommends && \
-    echo 'APT::Install-Suggests "0";' | tee -a /etc/apt/apt.conf.d/01norecommends && \
-    echo 'Acquire::ForceIPv4=true;' | tee -a /etc/apt/apt.conf.d/99force-ipv4 && \
+# Install security and performance optimizations
+RUN echo 'APT::Install-Recommends "0";' > /etc/apt/apt.conf.d/01norecommends && \
+    echo 'APT::Install-Suggests "0";' > /etc/apt/apt.conf.d/01norecommends && \
+    echo 'Acquire::ForceIPv4=true;' > /etc/apt/apt.conf.d/99force-ipv4 && \
     apt-get update && apt-get install -y --no-install-recommends \
+    # Core system tools
+    ca-certificates \
+    curl \
+    wget \
+    gnupg \
+    lsb-release \
     # Network scanning and enumeration
     nmap \
     # DDoS tools
@@ -44,6 +60,7 @@ RUN echo 'APT::Install-Recommends "0";' | tee -a /etc/apt/apt.conf.d/01norecomme
     openssl \
     openssh-client \
     telnet \
+    jq \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/cache/apt/archives/* \
@@ -55,8 +72,7 @@ RUN groupadd -r attacker && useradd -r -g attacker -d /home/attacker -s /bin/bas
     && chown -R attacker:attacker /home/attacker
 
 # Install Python packages for additional attack capabilities
-RUN pip3 install --no-cache-dir --upgrade pip \
-    && pip3 install --no-cache-dir \
+RUN pip3 install --break-system-packages --no-cache-dir \
     requests \
     beautifulsoup4 \
     paramiko \
@@ -66,9 +82,15 @@ RUN pip3 install --no-cache-dir --upgrade pip \
 # Create directories for logs and scripts
 RUN mkdir -p /logs /attack_scenarios 
 
-# Create a simple wordlist for testing
+# Download and extract rockyou.txt wordlist
 RUN mkdir -p /usr/share/wordlists && \
-    echo -e "admin\npassword\n123456\npassword123\nadmin123\nroot\ntest\nguest\nuser\nwordpress\nletmein\nwelcome\nqwerty" > /usr/share/wordlists/rockyou.txt
+    curl -L -o /tmp/rockyou.zip https://github.com/kkrypt0nn/wordlists/raw/refs/heads/main/wordlists/famous/rockyou.zip && \
+    apt-get update && apt-get install -y --no-install-recommends unzip && \
+    unzip /tmp/rockyou.zip -d /tmp/ && \
+    mv /tmp/rockyou.txt /usr/share/wordlists/ && \
+    rm -f /tmp/rockyou.zip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Add health check script
 RUN echo '#!/bin/bash\nping -c 1 100.64.0.20 >/dev/null 2>&1' > /usr/local/bin/healthcheck.sh \
@@ -88,4 +110,8 @@ LABEL maintainer="Security Testbed Team" \
       security.level="educational" \
       usage="isolated-environment-only"
 
+# Production stage
+FROM base AS production
+
+# Set the default command
 CMD ["/bin/bash"]
